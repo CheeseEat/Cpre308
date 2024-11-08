@@ -101,7 +101,6 @@ int main(int argc, char* argv[])
     // Main Logic
     while(1)
     {
-        print_q();
         fgets(buffer, sizeof(buffer), stdin);
         tokenize(buffer, tokens, &tokens_count);
         if(strcmp(tokens[0], "CHECK") == 0)
@@ -141,24 +140,26 @@ int main(int argc, char* argv[])
 
             // Go through and get all the transactions from the given string
             int number_transactions = (tokens_count - 1) / 2;
-            struct trans transactions[number_transactions]; // Minus 1 for the first prompt in the string
+             struct trans *transactions = malloc(number_transactions * sizeof(struct trans)); // Minus 1 for the first prompt in the string
             for(int i = 1; i < tokens_count; i+=2)
             {
-                int account_id = atoi(tokens[i]);
-                int ammount = atoi(tokens[i+1]);
-                struct trans temp_transaction = {.acc_id = account_id, .amount = ammount};
-                transactions[i/2] = temp_transaction;
+                transactions[i/2].acc_id = atoi(tokens[i]);
+                transactions[i/2].amount = atoi(tokens[i+1]);
             }
 
             // Add it to the queue
             struct request *cur_request = (struct request *)malloc(sizeof(struct request));
             *cur_request = (struct request){.request_id = request_id, .transactions = transactions, .num_trans = number_transactions, .starttime = time};
             request_id++;
-            pthread_cond_broadcast(&q_cond);
+            
             pthread_mutex_lock(&q_lock);
-            struct request* last_request = q.tail;
-            last_request->next = cur_request;
+            if (q.tail == NULL) {
+                q.head = cur_request;
+            } else {
+                q.tail->next = cur_request;
+            }
             q.tail = cur_request;
+            pthread_cond_broadcast(&q_cond);
             pthread_mutex_unlock(&q_lock);
         }
         else if (strcmp(tokens[0], "END") == 0)
@@ -191,34 +192,37 @@ void* thread_worker(void* arg)
         
         pthread_mutex_lock(&q_lock);
 
+        //If there is nothing on the q wait
         while(q.head == NULL && !stop_flag) pthread_cond_wait(&q_cond, &q_lock);
-
+        // Stop if END has been called
         if (stop_flag && q.head == NULL) {
             pthread_mutex_unlock(&q_lock);
             break;
         }
 
-        // Grab the job at the front of the queue and see if anyone has it locked.
+        // Grab the job at the front of the queue and remove it
         struct request* cur_trans = q.head;
-        struct request* prev_trans = NULL;
-        pthread_mutex_t cur_lock = mutex_locks_array[cur_trans->request_id];
-        
-        // Go untill you find a request that needs work
-        while(pthread_mutex_trylock(&cur_lock) != 0)
+        q.head = cur_trans->next;
+        if(q.head == NULL)
         {
-            prev_trans = cur_trans;
-            cur_trans = cur_trans->next;
-            cur_lock = mutex_locks_array[cur_trans->request_id];
+            q.tail = NULL;
         }
+        // Let another thread grab a job from the q
+        pthread_mutex_unlock(&q_lock);
 
-        printf("HERHE");
 
-        // Unlock and adjust the q which needs a lock of its own
+        // End time of CHECK or TRANS
         struct timeval endtime;
         gettimeofday(&endtime, NULL);
+
+        // Determine CHECK or TRANS
         if(cur_trans->check_acc_id != 0)
         {
-            int amt = read_account(cur_trans->check_acc_id);
+            // Process CHECK
+            int account_id = cur_trans->check_acc_id;
+            pthread_mutex_lock(&mutex_locks_array[account_id-1]);
+            int amt = read_account(account_id);
+            pthread_mutex_unlock(&mutex_locks_array[account_id-1]);
             printf("%d BAL %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, amt, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
         }
         else
@@ -231,11 +235,15 @@ void* thread_worker(void* arg)
                 for(int j = 0; j < cur_trans->num_trans; j++)
                 {
                     struct trans temp_trans = cur_trans->transactions[j];
-                    pthread_mutex_t temp_lock = mutex_locks_array[j];
-                    pthread_mutex_lock(&temp_lock);
-                    write_account(temp_trans.acc_id, temp_trans.amount);
-                    pthread_mutex_unlock(&temp_lock);
+                    int account_id = temp_trans.acc_id;
+                    pthread_mutex_lock(&mutex_locks_array[account_id-1]);
+                    int account_total = read_account(account_id);
+                    int new_total = account_total + temp_trans.amount;
+                    write_account(account_id, new_total);
+                    pthread_mutex_unlock(&mutex_locks_array[account_id-1]);
                 }
+                printf("%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
+                       endtime.tv_sec, endtime.tv_usec);
             }
             // Otherwise the transaction is void
             else
@@ -244,21 +252,8 @@ void* thread_worker(void* arg)
             }
         }
 
-        printf("WHATTTT");
-
-        // Adjust the q
-        if(cur_trans == q.head)
-        {
-            q.head->next = cur_trans->next;
-        }
-        else
-        {
-            prev_trans->next = cur_trans->next;
-        }
-
-        pthread_mutex_unlock(&q_lock);
+        free(cur_trans->transactions);
         free(cur_trans);
-        pthread_mutex_unlock(&cur_lock);
 
     }
 
@@ -282,7 +277,7 @@ int check_transactions_valid(struct request* transaction)
         pthread_mutex_lock(&mutex_locks_array[acc_id]);
         int temp_acct_balance = read_account(temp_trans.acc_id);
         pthread_mutex_unlock(&mutex_locks_array[acc_id]);
-        if(temp_acct_balance - temp_trans.amount < 0) return temp_trans.acc_id;
+        if(temp_acct_balance + temp_trans.amount < 0) return temp_trans.acc_id;
     }
 
     return 0;
