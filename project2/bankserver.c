@@ -36,7 +36,7 @@ void tokenize();
 void* thread_worker();
 int check_transactions_valid(struct request* transaction);
 void join_all_threads(pthread_t* worker_threads_array, int num_threads);
-void intitalize_workers(pthread_t* worker_threads_array, int num_threads);
+void initialize_workers(pthread_t* worker_threads_array, int num_threads);
 void print_q();
 
 // Tells worker threads to stop
@@ -75,9 +75,6 @@ int main(int argc, char* argv[])
 
     initialize_accounts(num_accounts);
 
-    // thread_info account_mutexs[num_accounts];
-    // initialize_account_mutexlocks(num_accounts, &account_mutexs);
-
     char buffer[75];
     char tokens[20][20];
     int tokens_count = 0;
@@ -87,7 +84,11 @@ int main(int argc, char* argv[])
     initialize_mutexlocks(num_accounts);
 
     pthread_t* worker_threads_array = (pthread_t*)malloc(sizeof(pthread_t) * num_threads);
-    intitalize_workers(worker_threads_array, num_threads);
+    if (!worker_threads_array) {
+        printf("Failed to allocate memory for worker threads array\n");
+        return 1; // Exit or handle error
+    }
+    initialize_workers(worker_threads_array, num_threads);
 
     if(pthread_mutex_init(&q_lock, NULL) != 0) printf("FAILED TO initialize q mutex lock\n");
 
@@ -100,7 +101,7 @@ int main(int argc, char* argv[])
     // Main Logic
     while(1)
     {
-
+        print_q();
         fgets(buffer, sizeof(buffer), stdin);
         tokenize(buffer, tokens, &tokens_count);
         if(strcmp(tokens[0], "CHECK") == 0)
@@ -112,23 +113,25 @@ int main(int argc, char* argv[])
             int given_id = atoi(tokens[1]);
 
             // // Make a task and add it to the end of the queue for a worker thread to pick up
-            struct request cur_request = {.request_id = request_id, .check_acc_id = given_id, .starttime = time};
+            struct request *cur_request = (struct request *)malloc(sizeof(struct request));
+            *cur_request = (struct request){.request_id = request_id, .check_acc_id = given_id, .starttime = time};
             pthread_mutex_lock(&q_lock);
             struct request* last_request = q.tail;
             if(last_request == NULL)
             {
-                q.head = &cur_request;
-                q.tail = &cur_request;
+                q.head = cur_request;
+                q.tail = cur_request;
             }
             else
             {
-                last_request->next = &cur_request;
-                q.tail = &cur_request;
+                last_request->next = cur_request;
+                q.tail = cur_request;
             }
             //printf("head: %d tail %d\n", q.head->request_id, q.tail->request_id);
-            pthread_mutex_unlock(&q_lock);
             printf("ID %d\n", request_id);
             request_id++;
+            pthread_cond_broadcast(&q_cond);
+            pthread_mutex_unlock(&q_lock);
         }
         else if(strcmp(tokens[0], "TRANS") == 0)
         {
@@ -148,19 +151,15 @@ int main(int argc, char* argv[])
             }
 
             // Add it to the queue
-            struct request cur_request = {.request_id = request_id, .transactions = transactions, .num_trans = number_transactions, .starttime = time};
+            struct request *cur_request = (struct request *)malloc(sizeof(struct request));
+            *cur_request = (struct request){.request_id = request_id, .transactions = transactions, .num_trans = number_transactions, .starttime = time};
             request_id++;
             pthread_cond_broadcast(&q_cond);
             pthread_mutex_lock(&q_lock);
             struct request* last_request = q.tail;
-            last_request->next = &cur_request;
-            q.tail = &cur_request;
+            last_request->next = cur_request;
+            q.tail = cur_request;
             pthread_mutex_unlock(&q_lock);
-        }
-        else if(strcmp(tokens[0], "TRANS") == 0)
-        {
-            // Make all the worker threads exit, mutex conditional????
-            stop_flag = 1;
         }
         else if (strcmp(tokens[0], "END") == 0)
         {
@@ -190,15 +189,19 @@ void* thread_worker(void* arg)
     while(!stop_flag)
     {
         
+        pthread_mutex_lock(&q_lock);
+
+        while(q.head == NULL && !stop_flag) pthread_cond_wait(&q_cond, &q_lock);
+
+        if (stop_flag && q.head == NULL) {
+            pthread_mutex_unlock(&q_lock);
+            break;
+        }
+
         // Grab the job at the front of the queue and see if anyone has it locked.
         struct request* cur_trans = q.head;
         struct request* prev_trans = NULL;
-        // I think it should be going to the account id
         pthread_mutex_t cur_lock = mutex_locks_array[cur_trans->request_id];
-
-        pthread_mutex_lock(&q_lock);
-
-        while(q.head == NULL) pthread_cond_wait(&q_cond, &q_lock);
         
         // Go untill you find a request that needs work
         while(pthread_mutex_trylock(&cur_lock) != 0)
@@ -208,8 +211,7 @@ void* thread_worker(void* arg)
             cur_lock = mutex_locks_array[cur_trans->request_id];
         }
 
-        // Do the work
-        
+        printf("HERHE");
 
         // Unlock and adjust the q which needs a lock of its own
         struct timeval endtime;
@@ -242,6 +244,8 @@ void* thread_worker(void* arg)
             }
         }
 
+        printf("WHATTTT");
+
         // Adjust the q
         if(cur_trans == q.head)
         {
@@ -253,6 +257,7 @@ void* thread_worker(void* arg)
         }
 
         pthread_mutex_unlock(&q_lock);
+        free(cur_trans);
         pthread_mutex_unlock(&cur_lock);
 
     }
@@ -305,6 +310,11 @@ void tokenize(char str[], char tokens[][20], int* count)
 
 }
 
+void* chop(void* arg)
+{
+    pthread_exit(NULL);
+}
+
 void initialize_mutexlocks(int num_accounts)
 {
     for(int i = 0; i < num_accounts; i++)
@@ -313,7 +323,7 @@ void initialize_mutexlocks(int num_accounts)
     }
 }
 
-void intitalize_workers(pthread_t* worker_threads_array, int num_threads)
+void initialize_workers(pthread_t* worker_threads_array, int num_threads)
 {
     for(int i = 0; i < num_threads; i++)
     {
@@ -326,5 +336,15 @@ void join_all_threads(pthread_t* worker_threads_array, int num_threads)
     for(int i = 0; i < num_threads; i++)
     {
         pthread_join(worker_threads_array[i], NULL);
+    }
+}
+
+void print_q()
+{
+    struct request* current = q.head;
+    while(current != NULL)
+    {
+        printf("%d\n", current->request_id);
+        current = current->next;
     }
 }
