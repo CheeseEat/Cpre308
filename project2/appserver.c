@@ -45,6 +45,7 @@ pthread_mutex_t q_lock;
 pthread_cond_t q_cond = PTHREAD_COND_INITIALIZER;
 struct queue q;
 pthread_mutex_t* mutex_locks_array;
+FILE* output_file;
 
 int main(int argc, char* argv[])
 {
@@ -59,7 +60,6 @@ int main(int argc, char* argv[])
     int num_threads = atoi(argv[1]);
     int num_accounts = atoi(argv[2]);
     char* file_path = argv[3];
-    FILE* output_file;
     if(num_threads == 0 || num_accounts == 0)
     {
         printf("# of worker threads or # of accounts invalid input");
@@ -183,6 +183,11 @@ int main(int argc, char* argv[])
 
 }
 
+int compare_transactions(const void* a, const void* b)
+{
+    return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
+}
+
 void* thread_worker(void* arg)
 {
 
@@ -223,7 +228,8 @@ void* thread_worker(void* arg)
             pthread_mutex_lock(&mutex_locks_array[account_id-1]);
             int amt = read_account(account_id);
             pthread_mutex_unlock(&mutex_locks_array[account_id-1]);
-            printf("%d BAL %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, amt, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
+            //printf("%d BAL %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, amt, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
+            fprintf(output_file, "%d BAL %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, amt, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
         }
         else
         {
@@ -231,6 +237,7 @@ void* thread_worker(void* arg)
             int acct_num;
             if((acct_num = check_transactions_valid(cur_trans)) == 0)
             {
+                //qsort(cur_trans, cur_trans->num_trans, sizeof(struct trans), compare_transactions);
                 // Carry out the transaction/s
                 for(int j = 0; j < cur_trans->num_trans; j++)
                 {
@@ -242,13 +249,16 @@ void* thread_worker(void* arg)
                     write_account(account_id, new_total);
                     pthread_mutex_unlock(&mutex_locks_array[account_id-1]);
                 }
-                printf("%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
-                       endtime.tv_sec, endtime.tv_usec);
+                // printf("%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
+                //        endtime.tv_sec, endtime.tv_usec);
+                fprintf(output_file, "%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
+                        endtime.tv_sec, endtime.tv_usec);
             }
             // Otherwise the transaction is void
             else
             {
-                printf("%d ISF %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, acct_num, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
+                //printf("%d ISF %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, acct_num, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
+                fprintf(output_file, "%d ISF %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, acct_num, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec, endtime.tv_sec, endtime.tv_usec);
             }
         }
 
@@ -261,11 +271,6 @@ void* thread_worker(void* arg)
 
 }
 
-int compare_transactions(const void* a, const void* b)
-{
-    return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
-}
-
 int check_transactions_valid(struct request* transaction)
 {
     // Need to go through all the account checking their balance to see if sufficient
@@ -274,9 +279,9 @@ int check_transactions_valid(struct request* transaction)
     {
         struct trans temp_trans = transaction->transactions[i];
         int acc_id = temp_trans.acc_id;
-        pthread_mutex_lock(&mutex_locks_array[acc_id]);
+        pthread_mutex_lock(&mutex_locks_array[acc_id-1]);
         int temp_acct_balance = read_account(temp_trans.acc_id);
-        pthread_mutex_unlock(&mutex_locks_array[acc_id]);
+        pthread_mutex_unlock(&mutex_locks_array[acc_id-1]);
         if(temp_acct_balance + temp_trans.amount < 0) return temp_trans.acc_id;
     }
 
