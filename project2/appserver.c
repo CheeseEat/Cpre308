@@ -75,8 +75,8 @@ int main(int argc, char* argv[])
 
     initialize_accounts(num_accounts);
 
-    char buffer[75];
-    char tokens[20][20];
+    char buffer[160];
+    char tokens[30][30];
     int tokens_count = 0;
 
     // Make an array with a mutex lock for each account
@@ -161,6 +161,7 @@ int main(int argc, char* argv[])
             q.tail = cur_request;
             pthread_cond_broadcast(&q_cond);
             pthread_mutex_unlock(&q_lock);
+            printf("WORKED");
         }
         else if (strcmp(tokens[0], "END") == 0)
         {
@@ -180,11 +181,6 @@ int main(int argc, char* argv[])
         }
     }
 
-}
-
-int compare_transactions(const void* a, const void* b)
-{
-    return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
 }
 
 void* thread_worker(void* arg)
@@ -258,6 +254,11 @@ void* thread_worker(void* arg)
 
 }
 
+int compare_transactions(const void* a, const void* b)
+{
+    return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
+}
+
 int check_transactions_valid(struct request* transaction)
 {
     
@@ -267,6 +268,7 @@ int check_transactions_valid(struct request* transaction)
     int i;
     
     for (i = 0; i < transaction->num_trans; i++) {
+        
         int acc_id = transaction->transactions[i].acc_id;
 
         // Lock each account in order
@@ -285,7 +287,6 @@ int check_transactions_valid(struct request* transaction)
         }
     }
 
-    // Step 2: Apply transaction updates
     for (i = 0; i < transaction->num_trans; i++) {
         int acc_id = transaction->transactions[i].acc_id;
         write_account(acc_id, tentative_balances[i]);
@@ -296,7 +297,7 @@ int check_transactions_valid(struct request* transaction)
 
 }
 
-void tokenize(char str[], char tokens[][20], int* count)
+void tokenize(char str[], char tokens[][30], int* count)
 {
     
     char* token = strtok(str, " ");
