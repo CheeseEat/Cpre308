@@ -167,6 +167,11 @@ int main(int argc, char* argv[])
             stop_flag = 1;
             pthread_cond_broadcast(&q_cond);  // Wake all threads to terminate
             join_all_threads(worker_threads_array, num_threads);
+            // Cleanup
+            fclose(output_file);
+            free(mutex_locks_array);
+            free(worker_threads_array);
+            free_accounts();
             return 0;
         }
         else
@@ -174,12 +179,6 @@ int main(int argc, char* argv[])
             printf("INVALID INPUT\n");
         }
     }
-
-    // Cleanup
-    fclose(output_file);
-    free(mutex_locks_array);
-    free(worker_threads_array);
-    free_accounts();
 
 }
 
@@ -237,18 +236,6 @@ void* thread_worker(void* arg)
             int acct_num;
             if((acct_num = check_transactions_valid(cur_trans)) == 0)
             {
-                //qsort(cur_trans, cur_trans->num_trans, sizeof(struct trans), compare_transactions);
-                // Carry out the transaction/s
-                for(int j = 0; j < cur_trans->num_trans; j++)
-                {
-                    struct trans temp_trans = cur_trans->transactions[j];
-                    int account_id = temp_trans.acc_id;
-                    pthread_mutex_lock(&mutex_locks_array[account_id-1]);
-                    int account_total = read_account(account_id);
-                    int new_total = account_total + temp_trans.amount;
-                    write_account(account_id, new_total);
-                    pthread_mutex_unlock(&mutex_locks_array[account_id-1]);
-                }
                 // printf("%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
                 //        endtime.tv_sec, endtime.tv_usec);
                 fprintf(output_file, "%d OK TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, cur_trans->starttime.tv_sec, cur_trans->starttime.tv_usec,
@@ -273,19 +260,39 @@ void* thread_worker(void* arg)
 
 int check_transactions_valid(struct request* transaction)
 {
-    // Need to go through all the account checking their balance to see if sufficient
+    
     qsort(transaction->transactions, transaction->num_trans, sizeof(struct trans), compare_transactions);
-    for(int i = 0; i < transaction->num_trans; i++)
-    {
-        struct trans temp_trans = transaction->transactions[i];
-        int acc_id = temp_trans.acc_id;
-        pthread_mutex_lock(&mutex_locks_array[acc_id-1]);
-        int temp_acct_balance = read_account(temp_trans.acc_id);
-        pthread_mutex_unlock(&mutex_locks_array[acc_id-1]);
-        if(temp_acct_balance + temp_trans.amount < 0) return temp_trans.acc_id;
+
+    int tentative_balances[transaction->num_trans];
+    int i;
+    
+    for (i = 0; i < transaction->num_trans; i++) {
+        int acc_id = transaction->transactions[i].acc_id;
+
+        // Lock each account in order
+        pthread_mutex_lock(&mutex_locks_array[acc_id - 1]);
+
+        // Calculate tentative balance
+        int current_balance = read_account(acc_id);
+        tentative_balances[i] = current_balance + transaction->transactions[i].amount;
+
+        // If tentative balance is insufficient, unlock and return
+        if (tentative_balances[i] < 0) {
+            for (int j = 0; j <= i; j++) {
+                pthread_mutex_unlock(&mutex_locks_array[transaction->transactions[j].acc_id - 1]);
+            }
+            return transaction->transactions[i].acc_id; // Return the ID of the insufficient account
+        }
     }
 
-    return 0;
+    // Step 2: Apply transaction updates
+    for (i = 0; i < transaction->num_trans; i++) {
+        int acc_id = transaction->transactions[i].acc_id;
+        write_account(acc_id, tentative_balances[i]);
+        pthread_mutex_unlock(&mutex_locks_array[acc_id - 1]);
+    }
+
+    return 0; 
 
 }
 
