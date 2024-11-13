@@ -2,13 +2,13 @@ CC = cc
 CFLAGS = -Wall -g -pthread
 
 #objects = bankserver.o Project2Test_v2.o Bank.o
-objects = bankserver.o Bank.o
+objects = appserver.o Bank.o
 
-bankapp: $(objects)
+appserver: $(objects)
 	$(CC) -o bankapp $(objects) -pthread
 
-bankserver.o: bankserver.c Bank.h
-	$(CC) -c bankserver.c $(CFLAGS)
+appserver.o: appserver.c Bank.h
+	$(CC) -c appserver.c $(CFLAGS)
 
 # Project2Test_v2.o: Project2Test_v2.c
 # 	$(CC) -c Project2Test_v2.c $(CFLAGS)
