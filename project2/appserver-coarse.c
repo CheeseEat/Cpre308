@@ -82,6 +82,7 @@ int main(int argc, char* argv[])
     int tokens_count = 0;
 
     if(pthread_mutex_init(&mutex_lock, NULL) != 0) printf("failed to create mutex\n");
+    if(pthread_mutex_init(&account_lock, NULL) != 0) printf("FAILED TO initialize q mutex lock\n");
 
     pthread_t* worker_threads_array = (pthread_t*)malloc(sizeof(pthread_t) * num_threads);
     if (!worker_threads_array) {
@@ -209,6 +210,7 @@ void* thread_worker(void* arg) {
         if (q.head == NULL) {
             q.tail = NULL;
         }
+        pthread_mutex_lock(&account_lock);
         pthread_mutex_unlock(&q_lock);
 
         struct timeval endtime;
@@ -218,6 +220,7 @@ void* thread_worker(void* arg) {
             // Process CHECK
             int account_id = cur_trans->check_acc_id;
             pthread_mutex_lock(&mutex_lock);  // Lock the entire bank for a CHECK
+            pthread_mutex_unlock(&account_lock);
             int amt = read_account(account_id);
             pthread_mutex_unlock(&mutex_lock);
             fprintf(output_file, "%d BAL %d TIME %ld.%06ld %ld.%06ld\n", cur_trans->request_id, amt,
@@ -226,6 +229,7 @@ void* thread_worker(void* arg) {
             // Process TRANS
             int acct_num;
             pthread_mutex_lock(&mutex_lock);  // Lock the bank for the entire transaction processing
+            pthread_mutex_unlock(&account_lock);
             acct_num = check_transactions_valid(cur_trans);
             pthread_mutex_unlock(&mutex_lock);
 

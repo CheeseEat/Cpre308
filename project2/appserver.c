@@ -210,6 +210,7 @@ void* thread_worker(void* arg)
             q.tail = NULL;
         }
         // Let another thread grab a job from the q
+        pthread_mutex_lock(&account_lock);
         pthread_mutex_unlock(&q_lock);
 
         // End time of CHECK or TRANS
@@ -221,7 +222,6 @@ void* thread_worker(void* arg)
         {
             // Process CHECK
             int account_id = cur_trans->check_acc_id;
-            pthread_mutex_lock(&account_lock);
             pthread_mutex_lock(&mutex_locks_array[account_id-1]);
             pthread_mutex_unlock(&account_lock);
             int amt = read_account(account_id);
@@ -248,8 +248,6 @@ void* thread_worker(void* arg)
             }
         }
 
-        pthread_mutex_unlock(&account_lock);
-
         free(cur_trans->transactions);
         free(cur_trans);
 
@@ -259,20 +257,19 @@ void* thread_worker(void* arg)
 
 }
 
-int compare_transactions(const void* a, const void* b)
-{
-    return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
-}
+// int compare_transactions(const void* a, const void* b)
+// {
+//     return ((struct trans*)a)->acc_id - ((struct trans*)b)->acc_id;
+// }
 
 int check_transactions_valid(struct request* transaction)
 {
     
-    qsort(transaction->transactions, transaction->num_trans, sizeof(struct trans), compare_transactions);
+    //qsort(transaction->transactions, transaction->num_trans, sizeof(struct trans), compare_transactions);
 
     int tentative_balances[transaction->num_trans];
     int i;
     
-    pthread_mutex_lock(&account_lock);
     for (i = 0; i < transaction->num_trans; i++) {
         
         int acc_id = transaction->transactions[i].acc_id;
