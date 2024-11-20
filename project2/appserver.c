@@ -143,7 +143,7 @@ int main(int argc, char* argv[])
 
             // Go through and get all the transactions from the given string
             int number_transactions = (tokens_count - 1) / 2;
-             struct trans *transactions = malloc(number_transactions * sizeof(struct trans)); // Minus 1 for the first prompt in the string
+            struct trans *transactions = malloc(number_transactions * sizeof(struct trans)); // Minus 1 for the first prompt in the string
             for(int i = 1; i < tokens_count; i+=2)
             {
                 transactions[i/2].acc_id = atoi(tokens[i]);
