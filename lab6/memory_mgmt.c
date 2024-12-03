@@ -255,7 +255,16 @@ int PRAlgo_FIFO(const PageFrame * PageFrames, int num_frames, const int * PageAc
 {
 	int frame_to_evict = 0;
 	/*TODO: fill in the code below */
-
+    int min_arrival = __INT32_MAX__;
+    for(int i = 0; i < num_frames; i++)
+    {
+        int cur_page_arrival_time = PageFrames[i].time_of_arrival;
+        if(cur_page_arrival_time < min_arrival)
+        {
+            min_arrival = cur_page_arrival_time;
+            frame_to_evict = i;
+        }
+    }
 
 	return frame_to_evict;
 }
@@ -273,7 +282,16 @@ int PRAlgo_LRU(const PageFrame * PageFrames, int num_frames, const int * PageAcc
 {
 	int frame_to_evict = 0;
 	/*TODO: fill in the code below */
-
+    int min_unused = __INT32_MAX__;
+    for(int i = 0; i < num_frames; i++)
+    {
+        int cur_page_arrival_time = PageFrames[i].time_of_access;
+        if(cur_page_arrival_time < min_unused)
+        {
+            min_unused = cur_page_arrival_time;
+            frame_to_evict = i;
+        }
+    }
 
 	return frame_to_evict;
 
@@ -291,10 +309,35 @@ int PRAlgo_LRU(const PageFrame * PageFrames, int num_frames, const int * PageAcc
  */
 int PRAlgo_OPT(const PageFrame * PageFrames, int num_frames, const int * PageAccesses, int num_accesses, int current_access)
 {
-	int frame_to_evict = 0;
-	/*TODO: fill in the code below */
+   int frame_to_evict = 0;
+   int farthest_next_access = -1;
 
+   for (int i = 0; i < num_frames; i++)
+   {
+       int current_page = PageFrames[i].page_id;
+       int next_access_time = -1;
 
-	return frame_to_evict;
+       for (int j = current_access + 1; j < num_accesses; j++)
+       {
+           if (PageAccesses[j] == current_page)
+           {
+               next_access_time = j;
+               break;
+           }
+       }
 
+       if (next_access_time == -1)
+       {
+           return i;
+       }
+
+       if (next_access_time > farthest_next_access)
+       {
+           farthest_next_access = next_access_time;
+           frame_to_evict = i;
+       }
+   }
+
+   return frame_to_evict;
+   
 }
